@@ -1,0 +1,24 @@
+# Secrets — never commit
+local.properties
+secrets.properties
+google-services.json
+app/google-services.json
+
+# Gradle / Android Studio
+.gradle/
+build/
+app/build/
+captures/
+.idea/
+*.iml
+.cxx/
+.externalNativeBuild/
+.DS_Store
+
+# Firebase
+functions/node_modules/
+rules-tests/node_modules/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/

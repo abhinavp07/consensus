@@ -1,0 +1,19 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Three overlapping circles: separate people meeting in one plan. -->
+    <path
+        android:fillColor="#99FFFFFF"
+        android:pathData="M54,32a12,12 0,1 1,0 24a12,12 0,1 1,0 -24z" />
+    <path
+        android:fillColor="#99FFFFFF"
+        android:pathData="M44,50a12,12 0,1 1,0 24a12,12 0,1 1,0 -24z" />
+    <path
+        android:fillColor="#99FFFFFF"
+        android:pathData="M64,50a12,12 0,1 1,0 24a12,12 0,1 1,0 -24z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,51m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0" />
+</vector>

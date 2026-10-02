@@ -1,0 +1,183 @@
+rules_version = '2';
+
+// Consensus security rules. Tested with the emulator in /rules-tests (npm test).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function tripPath(tripId) {
+      return /databases/$(database)/documents/trips/$(tripId);
+    }
+
+    // State before this request.
+    function isMember(tripId) {
+      return signedIn() && uid() in get(tripPath(tripId)).data.memberIds;
+    }
+
+    // State after this batch/transaction (used when the trip is created in the same write).
+    function isMemberAfter(tripId) {
+      return signedIn() && uid() in getAfter(tripPath(tripId)).data.memberIds;
+    }
+
+    function isOwner(tripId) {
+      return signedIn() && get(tripPath(tripId)).data.ownerId == uid();
+    }
+
+    // ---- users/{userId}: only your own document ----
+    match /users/{userId} {
+      allow read, write: if signedIn() && uid() == userId;
+    }
+
+    // ---- inviteCodes/{code} -> { tripId, ownerId } ----
+    // Anyone signed in can look up a code they know, but codes can't be listed/enumerated.
+    match /inviteCodes/{code} {
+      allow get: if signedIn();
+      allow list, update: if false;
+      allow create: if signedIn()
+        && request.resource.data.ownerId == uid()
+        && getAfter(tripPath(request.resource.data.tripId)).data.ownerId == uid()
+        && getAfter(tripPath(request.resource.data.tripId)).data.inviteCode == code;
+      allow delete: if signedIn() && resource.data.ownerId == uid();
+    }
+
+    // ---- trips/{tripId} ----
+    match /trips/{tripId} {
+
+      function changedKeys() {
+        return request.resource.data.diff(resource.data).affectedKeys();
+      }
+
+      function profilesChangedOnlyForMe() {
+        return request.resource.data.memberProfiles.diff(resource.data.memberProfiles)
+          .affectedKeys().hasOnly([uid()]);
+      }
+
+      // Only the owner may change the name, dates, destination or status.
+      function ownerUpdate() {
+        return resource.data.ownerId == uid()
+          && !changedKeys().hasAny(['ownerId', 'inviteCode', 'memberIds', 'memberProfiles', 'createdAt']);
+      }
+
+      // Joining: the only change is adding exactly your own ID (plus your own profile).
+      // Re-joining a trip you're already in is a harmless no-op.
+      function joining() {
+        let before = resource.data.memberIds.toSet();
+        let after = request.resource.data.memberIds;
+        let expected = before.union([uid()].toSet());
+        return changedKeys().hasOnly(['memberIds', 'memberProfiles'])
+          && after.toSet() == expected
+          && after.size() == expected.size()
+          && profilesChangedOnlyForMe();
+      }
+
+      // Leaving: a non-owner member removes only themselves.
+      function leaving() {
+        let before = resource.data.memberIds;
+        let after = request.resource.data.memberIds;
+        return uid() in before
+          && resource.data.ownerId != uid()
+          && changedKeys().hasOnly(['memberIds', 'memberProfiles'])
+          && after.toSet() == before.toSet().difference([uid()].toSet())
+          && after.size() == before.size() - 1
+          && profilesChangedOnlyForMe();
+      }
+
+      allow read: if signedIn() && uid() in resource.data.memberIds;
+
+      allow create: if signedIn()
+        && request.resource.data.ownerId == uid()
+        && request.resource.data.memberIds == [uid()]
+        && request.resource.data.memberProfiles.keys().hasOnly([uid()])
+        && request.resource.data.status == 'collecting_preferences'
+        && request.resource.data.name is string && request.resource.data.name.size() > 0
+        && request.resource.data.destination is string && request.resource.data.destination.size() > 0
+        && request.resource.data.startDate is string
+        && request.resource.data.endDate is string
+        && request.resource.data.endDate >= request.resource.data.startDate;
+
+      allow update: if signedIn() && (ownerUpdate() || joining() || leaving());
+
+      allow delete: if signedIn() && resource.data.ownerId == uid();
+
+      // ---- preferences/{userId}: members read all, write only their own ----
+      match /preferences/{userId} {
+        function validPreferences() {
+          let d = request.resource.data;
+          return d.budget in ['Low', 'Medium', 'High']
+            && d.pace in ['Relaxed', 'Balanced', 'Packed']
+            && d.interests is list && d.interests.size() <= 20;
+        }
+
+        allow read: if isMember(tripId);
+        allow create, update: if isMember(tripId) && uid() == userId && validPreferences();
+        allow delete: if isMember(tripId) && uid() == userId;
+      }
+
+      // ---- days/{dayId} and their activities ----
+      match /days/{dayId} {
+        allow read: if isMember(tripId);
+        allow create: if isMemberAfter(tripId);
+        // Day notes are written by the owner when generating the itinerary.
+        allow update: if isOwner(tripId);
+        allow delete: if false;
+
+        match /activities/{activityId} {
+          function validActivity() {
+            let d = request.resource.data;
+            return d.title is string && d.title.size() > 0 && d.title.size() <= 200
+              && d.time is string && d.time.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+              && d.estimatedCost is number && d.estimatedCost >= 0;
+          }
+
+          // A member may only add/change/remove their own vote. Clearing all votes is allowed
+          // (an activity swapped for an AI alternative starts fresh).
+          function votesOk() {
+            let before = resource.data.get('votes', {});
+            let after = request.resource.data.get('votes', {});
+            return after.size() == 0
+              || (after.diff(before).affectedKeys().hasOnly([uid()])
+                  && (!(uid() in after) || after[uid()] in [1, -1]));
+          }
+
+          allow read: if isMember(tripId);
+          allow create: if isMember(tripId) && validActivity()
+            && request.resource.data.get('votes', {}).size() == 0;
+          allow update: if isMember(tripId) && validActivity() && votesOk();
+          allow delete: if isMember(tripId);
+        }
+      }
+
+      // ---- expenses/{expenseId} (amounts in integer cents) ----
+      match /expenses/{expenseId} {
+        function validExpense() {
+          let d = request.resource.data;
+          return d.description is string && d.description.size() > 0
+            && d.amountCents is int && d.amountCents > 0
+            && d.paidBy is string
+            && d.splitAmong is list && d.splitAmong.size() > 0;
+        }
+
+        allow read, delete: if isMember(tripId);
+        allow create, update: if isMember(tripId) && validExpense();
+      }
+
+      // ---- messages/{messageId}: append-only, sent as yourself ----
+      match /messages/{messageId} {
+        allow read: if isMember(tripId);
+        allow create: if isMember(tripId)
+          && request.resource.data.senderId == uid()
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 1000;
+        allow update, delete: if false;
+      }
+    }
+  }
+}
