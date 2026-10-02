@@ -1,5 +1,5 @@
 /**
- * Security rules tests (US-9.1). Run with `npm test` in this folder; it starts the Firestore
+ * Firestore security rules tests. Run with `npm test` in this folder; it starts the Firestore
  * emulator, runs these tests, and shuts it down.
  */
 const fs = require("fs");

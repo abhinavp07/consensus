@@ -2,7 +2,7 @@
 
 Android app for planning a group trip. Everyone fills out a short survey about budget, interests and pace, then Gemini drafts a day-by-day itinerary that tries to give each person something they want. From there the group can vote on activities, swap out the ones nobody likes, split expenses and chat. Everything syncs live through Firestore.
 
-Built in Java with Firebase (Auth, Firestore, Cloud Messaging, AI Logic) and the Google Maps/Places SDKs. The original requirements are in [docs/user-stories.md](docs/user-stories.md).
+Built in Java with Firebase (Auth, Firestore, Cloud Messaging, AI Logic) and the Google Maps/Places SDKs.
 
 ## Running it
 
@@ -56,7 +56,7 @@ cd rules-tests && npm install && npm test   # Firestore rules, runs against the 
 
 ## How it's put together
 
-Standard MVVM. Activities observe LiveData from ViewModels, and all Firebase, Gemini and Places calls live in `data/repo`. Real-time screens use small LiveData wrappers around Firestore snapshot listeners, so listeners are detached when a screen goes to the background. More detail on the layout and Firestore schema is in [CLAUDE.md](CLAUDE.md).
+Standard MVVM. Activities observe LiveData from ViewModels, and all Firebase, Gemini and Places calls live in `data/repo`. Real-time screens use small LiveData wrappers around Firestore snapshot listeners, so listeners are detached when a screen goes to the background.
 
 A few things that aren't obvious from the code:
 
